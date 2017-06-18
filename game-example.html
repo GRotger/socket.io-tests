@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+	<style>
+
+		body {
+			background-color: black;
+		}
+
+		canvas {
+			border: 1px solid #d3d3d3;
+			background-color: #f1f1f1;
+		}
+
+	</style>
+</head>
+<body onload="startGame()">
+	<div style="text-align:center;width:480px;">
+	  <button onclick="player.moveUp()">UP</button><br><br>
+	  <button onclick="player.moveLeft()">LEFT</button>
+	  <button onclick="player.moveRight()">RIGHT</button><br><br>
+	  <button onclick="player.moveDown()">DOWN</button>
+	</div>
+
+	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.0.3/socket.io.js"></script>
+
+	<script type="text/javascript">
+		var socket      = io();
+		var usersCached = {};
+
+		class GameArea {
+			constructor() {
+				this.canvas  = document.createElement("canvas");
+				this.context = this.canvas.getContext('2d');
+
+				this.canvas.height = 400;
+				this.canvas.width  = 800;
+
+				document.body.insertBefore(this.canvas, document.body.childNodes[0]);
+			}
+
+			clear() {
+				this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
+			}
+		}
+
+
+		class Player {
+			constructor(radius, color) {
+				this.radius = radius;
+				this.color  = color;
+
+				this.x      = 200;
+				this.y      = 120;
+
+				this.speedX = 0;
+				this.speedY = 0;
+			}
+
+			newPosition() {
+				var newX = this.x + this.speedX,
+					newY = this.y + this.speedY;
+
+				if ((newX - this.radius) <= 0)  {
+					this.x = this.radius;
+					this.speedX = 0;
+				} else if ( (newX + this.radius) >= this.gameArea.canvas.width) {
+					this.x = this.gameArea.canvas.width - this.radius;
+					this.speedX = 0;
+				} else {
+					this.x += this.speedX;
+				}
+
+				if ((newY - this.radius) < 0) {
+					this.y = this.radius;
+					this.speedY = 0;
+				} else if ( (newY + this.radius) >= this.gameArea.canvas.height) {
+					this.y      = this.gameArea.canvas.height - this.radius;
+					this.speedY = 0;
+				} else {
+					this.y += this.speedY;
+				}
+
+			}
+
+			setGameArea(gameArea) {
+				this.gameArea = gameArea;
+			}
+
+			move() {
+				// this.radius += 0.1;
+
+				this.newPosition();
+
+				this.gameArea.context.beginPath();
+				this.gameArea.context.arc(this.x, this.y, this.radius, 0, 2 * Math.PI, false);
+				this.gameArea.context.fillStyle = this.color;
+				this.gameArea.context.fill();
+			}
+
+			sendPositionToSocket() {
+				socket.emit('playerUpdate', { x: this.x, y: this.y, radius: this.radius });
+			}
+
+		  	moveUp() {
+		    	this.speedY -= 1; 
+			}
+
+			moveDown() {
+			    this.speedY += 1; 
+			}
+
+			moveLeft() {
+			    this.speedX -= 1; 
+			}
+
+			moveRight() {
+			    this.speedX += 1; 
+			}
+		}
+
+	    function getRandomColor() {
+	        var letters = '0123456789ABCDEF';
+	        var color = '#';
+	        for (var i = 0; i < 6; i++ ) {
+	            color += letters[Math.floor(Math.random() * 16)];
+	        }
+	        return color;
+	    }
+
+
+	    function moveLoop() {
+	    	gameArea.clear();
+
+	    	player.move();
+	    	player.sendPositionToSocket();
+
+	    	printOtherPlayers();
+	    }
+
+	    function printOtherPlayers() {
+	    	for (var userId in usersCached) {
+	    		usersCached[userId].move();
+    		}
+	    }
+
+
+		function startGame () {
+			gameArea = new GameArea();
+
+			player   = new Player(20, getRandomColor());
+			player.setGameArea(gameArea);
+
+			socket.emit('welcome', { 
+				x: player.x, 
+				y: player.y, 
+				color: player.color 
+			});
+
+			setInterval(moveLoop, 1000 / 60);
+		}
+
+	    socket.on('playersUpdate', function(users) {
+	    	for (var userId in users) {
+    			if (userId != socket.id) {
+
+					if (!usersCached.hasOwnProperty(userId)) {
+						usersCached[userId] = new Player(20, users[userId].color);
+						usersCached[userId].setGameArea(gameArea);
+					} 
+
+					usersCached[userId] = Object.assign(usersCached[userId], users[userId]);
+
+					// usersCached[userId].color = users[userId].color;
+					// usersCached[userId].x     = users[userId].x;
+					// usersCached[userId].y     = users[userId].y;
+    			}
+			}
+	    });
+
+	    socket.on('playerDisconnected', (userId) => {
+	    	console.log('playerDisconnected');
+
+    		delete usersCached[userId];
+	    })
+	</script>
+</body>
+</html>
